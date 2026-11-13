@@ -129,7 +129,7 @@ def _tiktok_id_from_url(url: str) -> str | None:
 
 
 def _cookie_candidates(raw: str) -> list[Path]:
-    """Local `.env` uses `./cookies.txt`; Docker mounts the file at `/app/cookies.txt`."""
+    """Resolve cookies for local runs and the Docker image path."""
     path = Path(raw).expanduser()
     candidates: list[Path] = []
     if path.is_absolute():
@@ -137,9 +137,9 @@ def _cookie_candidates(raw: str) -> list[Path]:
     else:
         candidates.append(Path.cwd() / path)
         candidates.append(Path("/app") / path.name)
-    mounted = Path("/app/cookies.txt")
-    if mounted not in candidates:
-        candidates.append(mounted)
+    baked = Path("/app/cookies.txt")
+    if baked not in candidates:
+        candidates.append(baked)
     return candidates
 
 
@@ -151,7 +151,7 @@ def _resolve_cookie_file(raw: str) -> Path | None:
 
 
 def _writable_cookie_file(source: Path) -> Path:
-    """yt-dlp rewrites cookies after each request. The Docker mount is read-only."""
+    """yt-dlp may rewrite the cookie file; use a cache copy if source is not writable."""
     if os.access(source, os.W_OK):
         return source
     dest_dir = Path(settings.video_cache_dir).expanduser()

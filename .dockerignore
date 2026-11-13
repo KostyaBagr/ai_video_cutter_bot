@@ -14,7 +14,7 @@ tmp
 .env
 .env.*
 !.env.example
-cookies.txt
+# cookies.txt is copied into the image (keep local file next to Dockerfile)
 *.cookies.txt
 *.mp4
 *.mkv

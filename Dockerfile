@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HOME=/app/.cache/huggingface \
-    XDG_CACHE_HOME=/app/.cache
+    XDG_CACHE_HOME=/app/.cache \
+    YTDLP_COOKIES_FILE=/app/cookies.txt
 
 WORKDIR /app
 
@@ -22,6 +23,8 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY bot/ ./bot/
+# Netscape cookies for yt-dlp (must exist next to Dockerfile at build time)
+COPY cookies.txt ./cookies.txt
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin bot \
     && mkdir -p /app/.data /app/.cache/videos /app/.cache/huggingface \

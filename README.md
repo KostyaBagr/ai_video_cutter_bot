@@ -54,13 +54,13 @@ pytest tests -n 2
 
 ```bash
 cp .env.example .env   # заполните токены
-# для TikTok положите cookies.txt рядом с compose (или задайте COOKIES_HOST_PATH)
+# cookies.txt рядом с Dockerfile — копируется в образ при build
 
 docker compose up -d --build
 docker compose logs -f bot
 ```
 
-Образ: Python 3.12 + ffmpeg + DejaVu + faster-whisper. Томa: SQLite (`.data`) и кэш (видео + HuggingFace). Cookies монтируются read-only; `YTDLP_COOKIES_FROM_BROWSER` в Docker не используйте.
+Образ: Python 3.12 + ffmpeg + DejaVu + faster-whisper + `cookies.txt`. Тома: SQLite (`.data`) и кэш (видео + HuggingFace). `YTDLP_COOKIES_FROM_BROWSER` в Docker не используйте.
 
 ## Лимиты MVP
 
@@ -88,15 +88,7 @@ docker compose logs -f bot
 
 1. Залогинься в TikTok в браузере.
 2. Экспортируй cookies расширением вроде **Get cookies.txt LOCALLY** (формат Netscape).
-3. Положи файл в проект, например `cookies.txt` (он в `.gitignore`).
-4. В `.env`:
-
-```bash
-YTDLP_COOKIES_FILE=./cookies.txt
-# или, если бот на той же машине что и браузер:
-# YTDLP_COOKIES_FROM_BROWSER=chrome
-```
-
-5. Перезапусти бота.
+3. Положи файл в корень проекта как `cookies.txt` (он в `.gitignore`, но копируется в Docker-образ при `docker compose build`).
+4. Локально в `.env`: `YTDLP_COOKIES_FILE=./cookies.txt`. В Docker путь уже `/app/cookies.txt`.
 
 Подробнее: [yt-dlp FAQ — cookies](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp)
