@@ -1,0 +1,55 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+cookies.txt
+*.cookies.txt
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Tests / type / lint
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Runtime data (SQLite, yt-dlp cache, whisper/HF)
+.data/
+.cache/
+tmp/
+models/
+whisper/
+
+# Media / work products
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.wav
+*.ass
+*.srt
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Logs / IDE / OS
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -11,7 +11,7 @@ services:
       - bot-data:/app/.data
       - bot-cache:/app/.cache
       # TikTok/YouTube auth: create cookies.txt locally, then mount it:
-      - ./cookies.txt:/app/cookies.txt
+      - ./cookies.txt:/app/cookies.txt:ro
     # Set in .env for the container path:
     # YTDLP_COOKIES_FILE=/app/cookies.txt
 
