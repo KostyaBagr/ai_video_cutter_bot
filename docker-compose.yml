@@ -7,6 +7,8 @@ services:
     environment:
       SQLITE_PATH: /app/.data/bot.db
       VIDEO_CACHE_DIR: /app/.cache/videos
+      # .env keeps a host-relative path; inside the container the file is mounted here
+      YTDLP_COOKIES_FILE: /app/cookies.txt
     volumes:
       - bot-data:/app/.data
       - bot-cache:/app/.cache

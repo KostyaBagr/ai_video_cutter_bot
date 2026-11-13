@@ -1,6 +1,15 @@
 """URL parsing for YouTube / TikTok links."""
 
-from bot.remote_download import cache_filename, detect_source, extract_media_url
+import os
+from pathlib import Path
+
+from bot.config import settings
+from bot.remote_download import (
+    _cookie_opts,
+    cache_filename,
+    detect_source,
+    extract_media_url,
+)
 
 
 def test_extract_youtube_watch() -> None:
@@ -43,6 +52,37 @@ def test_reject_lookalike_hosts() -> None:
     assert detect_source("https://notyoutube.com/watch?v=dQw4w9WgXcQ") is None
     assert detect_source("https://evil-youtube.com/watch?v=dQw4w9WgXcQ") is None
     assert detect_source("https://tiktok.com.evil.example/video/1") is None
+
+
+def test_docker_cookie_path_fallback(tmp_path: Path, monkeypatch) -> None:
+    mounted = tmp_path / "cookies.txt"
+    mounted.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "ytdlp_cookies_file", "./cookies.txt")
+    monkeypatch.setattr(settings, "video_cache_dir", str(tmp_path / "cache"))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    monkeypatch.setattr(
+        "bot.remote_download._cookie_candidates",
+        lambda raw: [Path.cwd() / raw, mounted],
+    )
+
+    assert Path(_cookie_opts()["cookiefile"]) == mounted
+
+
+def test_readonly_cookies_are_copied(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "cookies.txt"
+    source.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+    source.chmod(0o444)
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(settings, "ytdlp_cookies_file", str(source))
+    monkeypatch.setattr(settings, "video_cache_dir", str(cache))
+
+    copied = Path(_cookie_opts()["cookiefile"])
+
+    assert copied == cache / ".cookies.txt"
+    assert os.access(copied, os.W_OK)
+    assert not os.access(source, os.W_OK)
 
 
 def test_cache_filename() -> None:

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -127,18 +128,56 @@ def _tiktok_id_from_url(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _cookie_candidates(raw: str) -> list[Path]:
+    """Local `.env` uses `./cookies.txt`; Docker mounts the file at `/app/cookies.txt`."""
+    path = Path(raw).expanduser()
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.append(Path.cwd() / path)
+        candidates.append(Path("/app") / path.name)
+    mounted = Path("/app/cookies.txt")
+    if mounted not in candidates:
+        candidates.append(mounted)
+    return candidates
+
+
+def _resolve_cookie_file(raw: str) -> Path | None:
+    for candidate in _cookie_candidates(raw):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _writable_cookie_file(source: Path) -> Path:
+    """yt-dlp rewrites cookies after each request. The Docker mount is read-only."""
+    if os.access(source, os.W_OK):
+        return source
+    dest_dir = Path(settings.video_cache_dir).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".cookies.txt"
+    shutil.copyfile(source, dest)
+    logger.info("Cookie file is read-only, using a writable copy")
+    return dest
+
+
 def _cookie_opts() -> dict:
     """Attach cookies for TikTok login wall (file preferred over browser)."""
     cookie_file = (settings.ytdlp_cookies_file or "").strip()
     if cookie_file:
-        path = Path(cookie_file).expanduser()
-        if not path.is_file():
-            logger.error("Configured cookies file missing: %s", path)
+        path = _resolve_cookie_file(cookie_file)
+        if path is None:
+            logger.error(
+                "Configured cookies file missing: %s (looked in %s)",
+                cookie_file,
+                ", ".join(str(item) for item in _cookie_candidates(cookie_file)),
+            )
             raise RemoteDownloadError(
                 "Не получилось скачать это видео.\n"
                 "Попробуй другую ссылку или зайди позже."
             )
-        return {"cookiefile": str(path)}
+        return {"cookiefile": str(_writable_cookie_file(path))}
 
     browser = (settings.ytdlp_cookies_from_browser or "").strip()
     if browser:
