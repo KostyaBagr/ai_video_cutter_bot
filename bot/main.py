@@ -47,13 +47,25 @@ def _proxy_label(url: str) -> str:
     return f"{scheme}://{host}{port}"
 
 
+def _normalize_proxy(url: str) -> str:
+    """Accept curl-style socks5h (SOCKS5 + remote DNS).
+
+    python-socks rejects the socks5h scheme. aiogram always sets rdns=True,
+    which is the same behavior: the proxy resolves api.telegram.org.
+    """
+    if url.lower().startswith("socks5h://"):
+        return "socks5://" + url.split("://", 1)[1]
+    return url
+
+
 def _telegram_session() -> AiohttpSession:
     """SOCKS proxy from TELEGRAM_PROXY, otherwise direct IPv4.
 
     Direct IPv4 avoids a Docker IPv6 blackhole. With a proxy, aiohttp-socks
     owns the connector and must not get an extra address family.
     """
-    proxy = (settings.telegram_proxy or "").strip() or None
+    raw = (settings.telegram_proxy or "").strip()
+    proxy = _normalize_proxy(raw) or None
     session = AiohttpSession(proxy=proxy, timeout=30.0)
     if proxy is None:
         connector_init = getattr(session, "_connector_init", None)

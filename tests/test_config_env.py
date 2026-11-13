@@ -26,6 +26,17 @@ def test_telegram_session_uses_socks_proxy(monkeypatch) -> None:
     assert session.proxy == "socks5://127.0.0.1:1080"
 
 
+def test_socks5h_is_accepted_as_remote_dns(monkeypatch) -> None:
+    monkeypatch.setattr(
+        settings,
+        "telegram_proxy",
+        "socks5h://user:secret@10.0.0.1:1080",
+    )
+    session = _telegram_session()
+    assert session.proxy == "socks5://user:secret@10.0.0.1:1080"
+    assert session._connector_init.get("rdns") is True
+
+
 def test_telegram_session_direct_is_ipv4(monkeypatch) -> None:
     monkeypatch.setattr(settings, "telegram_proxy", "  ")
     session = _telegram_session()
