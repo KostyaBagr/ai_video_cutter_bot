@@ -8,7 +8,6 @@ services:
       SQLITE_PATH: /app/.data/bot.db
       VIDEO_CACHE_DIR: /app/.cache/videos
       # cookies.txt is baked into the image at /app/cookies.txt
-      YTDLP_COOKIES_FILE: /app/cookies.txt
     volumes:
       - bot-data:/app/.data
       - bot-cache:/app/.cache

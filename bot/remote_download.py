@@ -136,8 +136,7 @@ def _cookie_candidates(raw: str) -> list[Path]:
         candidates.append(path)
     else:
         candidates.append(Path.cwd() / path)
-        candidates.append(Path("/app") / path.name)
-    baked = Path("/app/cookies.txt")
+    baked = Path("cookies.txt")
     if baked not in candidates:
         candidates.append(baked)
     return candidates
