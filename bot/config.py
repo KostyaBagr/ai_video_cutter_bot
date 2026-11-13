@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     )
 
     telegram_bot_token: str = ""
+    # SOCKS5 for api.telegram.org, e.g. socks5://user:pass@host:1080
+    telegram_proxy: str = ""
     runware_api_key: str = ""
 
     # debug | prod — in debug only DEBUG_TELEGRAM_ID may use the bot

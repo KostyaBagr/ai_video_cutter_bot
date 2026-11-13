@@ -6,6 +6,7 @@ import asyncio
 import logging
 import socket
 import sys
+from urllib.parse import urlparse
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -37,16 +38,27 @@ def setup_logging() -> None:
     )
 
 
-def _telegram_session() -> AiohttpSession:
-    """IPv4 + finite timeout.
+def _proxy_label(url: str) -> str:
+    """Host only — never log user/password from the proxy URL."""
+    parsed = urlparse(url)
+    host = parsed.hostname or "?"
+    port = f":{parsed.port}" if parsed.port else ""
+    scheme = parsed.scheme or "proxy"
+    return f"{scheme}://{host}{port}"
 
-    Docker's default bridge often has a blackhole IPv6 route. aiohttp then
-    waits on api.telegram.org forever, so logs stop right after SQLite.
+
+def _telegram_session() -> AiohttpSession:
+    """SOCKS proxy from TELEGRAM_PROXY, otherwise direct IPv4.
+
+    Direct IPv4 avoids a Docker IPv6 blackhole. With a proxy, aiohttp-socks
+    owns the connector and must not get an extra address family.
     """
-    session = AiohttpSession(timeout=30.0)
-    connector_init = getattr(session, "_connector_init", None)
-    if isinstance(connector_init, dict):
-        connector_init["family"] = socket.AF_INET
+    proxy = (settings.telegram_proxy or "").strip() or None
+    session = AiohttpSession(proxy=proxy, timeout=30.0)
+    if proxy is None:
+        connector_init = getattr(session, "_connector_init", None)
+        if isinstance(connector_init, dict):
+            connector_init["family"] = socket.AF_INET
     return session
 
 
@@ -65,7 +77,11 @@ async def main() -> None:
     require_ffprobe()
     await init_db()
 
-    log.info("Connecting to Telegram API (IPv4)…")
+    proxy = (settings.telegram_proxy or "").strip()
+    if proxy:
+        log.info("Connecting to Telegram API via %s…", _proxy_label(proxy))
+    else:
+        log.info("Connecting to Telegram API (direct IPv4)…")
     bot = Bot(
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
