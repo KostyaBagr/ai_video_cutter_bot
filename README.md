@@ -77,7 +77,6 @@ docker compose logs -f bot
 | Переменная | Описание |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Токен от [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_PROXY` | Прокси до Telegram: `socks5h://user:pass@host:1080` (DNS на стороне прокси). Пусто — прямое подключение |
 | `RUNWARE_API_KEY` | Ключ с [runware.ai](https://runware.ai/) |
 | `APP_ENV` | `prod` (без ограничений) или `debug` (только `DEBUG_TELEGRAM_ID`) |
 | `DEBUG_TELEGRAM_ID` | Telegram user id, которому можно писать боту в `debug` |
