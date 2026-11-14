@@ -1,4 +1,4 @@
-"""Telegram handlers: /start, social URL + prompt + duration + format + subs."""
+"""Telegram handlers: /start, MP4 upload + prompt + duration + format + subs."""
 
 from __future__ import annotations
 
@@ -49,20 +49,15 @@ from bot.pipeline import (
     process_sequential_video,
     process_video,
 )
-from bot.remote_download import (
-    RemoteDownloadError,
-    detect_source,
-    download_remote_video,
-    extract_media_url,
-)
 from bot.video import FFmpegError, get_duration_sec
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 _GENERIC_FAIL = "Что-то пошло не так. Попробуй ещё раз чуть позже."
-_DOWNLOAD_FAIL = "Не получилось скачать видео. Проверь ссылку или попробуй другое."
-_GONE = "Это видео уже недоступно. Пришли ссылку ещё раз."
+_UPLOAD_FAIL = "Не получилось принять файл. Пришли MP4 ещё раз."
+_NEED_MP4 = "Пришли видео файлом MP4, не ссылкой."
+_GONE = "Это видео уже недоступно. Пришли MP4 ещё раз."
 _BUSY = "Сейчас уже обрабатываю твоё видео. Дождись результата."
 _PAYMENTS_NOT_CONFIGURED = (
     "Оплата пока не настроена.\n"
@@ -291,9 +286,10 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     # Recover from interrupted flow
     await clear_busy(db_user.telegram_id)
     await message.answer(
-        "Пришли ссылку на YouTube или TikTok.\n\n"
+        "Пришли видео файлом MP4.\n\n"
         "Могу найти яркие моменты или нарезать ролик подряд на короткие клипы.\n"
-        f"Подойдут ролики до {_max_minutes()} минут — только ссылки, без файлов.\n\n"
+        f"Подойдут ролики до {_max_minutes()} минут "
+        f"и до {settings.max_file_bytes // (1024 * 1024)} МБ.\n\n"
         f"Баланс: {db_user.diamonds} 💎\n"
         "Команды: /balance · /prices · /shop",
         reply_markup=_shop_entry_keyboard(),
@@ -471,24 +467,47 @@ def _parse_clip_duration(text: str) -> float | None:
     return value
 
 
-def _client_download_error(exc: RemoteDownloadError) -> str:
-    """Map download failures to short user-safe text; log details separately."""
-    raw = str(exc).lower()
-    if "длинн" in raw or "максимум" in raw or "too long" in raw:
-        return (
-            f"Это видео слишком длинное.\n"
-            f"Можно до {_max_minutes()} минут."
-        )
-    if "плейлист" in raw or "канал" in raw:
-        return "Нужна ссылка на одно видео, не на плейлист или канал."
-    if "youtube" in raw and "tiktok" in raw:
-        return "Пока принимаю только ссылки YouTube и TikTok."
-    if "login" in raw or "cookie" in raw or "авториз" in raw:
-        return (
-            "Не получилось скачать это видео.\n"
-            "Попробуй другую ссылку или зайди позже."
-        )
-    return _DOWNLOAD_FAIL
+def _is_mp4_message(message: Message) -> bool:
+    video = message.video
+    if video is not None:
+        mime = (video.mime_type or "video/mp4").lower()
+        name = (video.file_name or "").lower()
+        return mime == "video/mp4" or name.endswith(".mp4") or mime == ""
+    document = message.document
+    if document is None:
+        return False
+    mime = (document.mime_type or "").lower()
+    name = (document.file_name or "").lower()
+    return mime == "video/mp4" or name.endswith(".mp4")
+
+
+def _upload_media(message: Message):
+    if message.video is not None and _is_mp4_message(message):
+        return message.video
+    if message.document is not None and _is_mp4_message(message):
+        return message.document
+    return None
+
+
+async def _store_mp4(message: Message) -> Path:
+    media = _upload_media(message)
+    if media is None:
+        raise ValueError("not mp4")
+    if media.file_size and media.file_size > settings.max_file_bytes:
+        raise ValueError("too big")
+    bot = message.bot
+    if bot is None:
+        raise ValueError("no bot")
+    remote = await bot.get_file(media.file_id)
+    if not remote.file_path:
+        raise ValueError("no file path")
+    dest_dir = Path(settings.video_cache_dir).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", media.file_unique_id)[:80]
+    dest = dest_dir / f"upload_{safe}.mp4"
+    if not (dest.is_file() and dest.stat().st_size > 0):
+        await bot.download_file(remote.file_path, destination=dest)
+    return dest
 
 
 async def _offer_cut_mode(
@@ -754,65 +773,65 @@ async def _run_pipeline(
             result.cleanup()
 
 
-@router.message(F.video)
-@router.message(F.document)
-@router.message(F.animation)
-@router.message(F.video_note)
-async def on_media_file_rejected(message: Message) -> None:
-    await message.answer(
-        "Файлы пока не принимаю — пришли ссылку на YouTube или TikTok."
-    )
+@router.message(StateFilter(default_state), F.video)
+@router.message(StateFilter(default_state), F.document)
+async def on_mp4_upload(message: Message, state: FSMContext) -> None:
+    if not _is_mp4_message(message):
+        await message.answer(_NEED_MP4)
+        return
 
-
-@router.message(StateFilter(default_state), F.text)
-async def on_media_link(message: Message, state: FSMContext) -> None:
-    url = extract_media_url(message.text or "")
-    if not url:
-        await message.answer(
-            "Нужна ссылка на YouTube или TikTok."
-        )
+    media = _upload_media(message)
+    if media is not None and media.file_size and media.file_size > settings.max_file_bytes:
+        limit_mb = settings.max_file_bytes // (1024 * 1024)
+        await message.answer(f"Файл больше {limit_mb} МБ. Пришли более короткий MP4.")
         return
 
     db_user = await _ensure_user(message)
     telegram_id = db_user.telegram_id
-
-    if await is_busy(telegram_id):
+    if await is_busy(telegram_id) or not await try_set_busy(telegram_id):
         await message.answer(_BUSY)
         return
-
-    if not await try_set_busy(telegram_id):
-        await message.answer(_BUSY)
-        return
-
-    source = detect_source(url) or "remote"
-    label = {"youtube": "YouTube", "tiktok": "TikTok"}.get(source, source)
 
     await state.clear()
-
-    status = await message.answer("Загружаю видео…")
-
+    status = await message.answer("Принимаю видео…")
     try:
-        downloaded = await download_remote_video(url)
-        # Wizard can take a while — don't hold busy lock until processing starts
+        video_path = await _store_mp4(message)
+        duration = await get_duration_sec(video_path)
+        if duration > settings.max_duration_sec:
+            video_path.unlink(missing_ok=True)
+            await status.edit_text(
+                f"Это видео слишком длинное.\nМожно до {_max_minutes()} минут."
+            )
+            return
         await _release_user(telegram_id)
         await _offer_cut_mode(
             status,
             state,
-            video_path=downloaded.path,
+            video_path=video_path,
             chat_id=message.chat.id,
             telegram_id=telegram_id,
-            from_cache=downloaded.from_cache,
         )
-    except RemoteDownloadError as exc:
-        logger.warning("%s download failed: %s", label, exc)
+    except FFmpegError:
+        logger.exception("Failed to read uploaded video")
         await state.clear()
-        await _release_user(telegram_id)
-        await status.edit_text(_client_download_error(exc))
+        await status.edit_text(_UPLOAD_FAIL)
     except Exception:
-        logger.exception("%s flow failed for chat %s", label, message.chat.id)
+        logger.exception("Failed to store uploaded MP4")
         await state.clear()
+        await status.edit_text(_UPLOAD_FAIL)
+    finally:
         await _release_user(telegram_id)
-        await status.edit_text(_DOWNLOAD_FAIL)
+
+
+@router.message(F.animation)
+@router.message(F.video_note)
+async def on_unsupported_media(message: Message) -> None:
+    await message.answer(_NEED_MP4)
+
+
+@router.message(StateFilter(default_state), F.text)
+async def on_text_instead_of_file(message: Message) -> None:
+    await message.answer(_NEED_MP4)
 
 
 @router.callback_query(
@@ -1103,6 +1122,6 @@ async def on_subtitles_chosen(callback: CallbackQuery, state: FSMContext) -> Non
 @router.callback_query(F.data == "prompt:default")
 async def on_stale_callback(callback: CallbackQuery) -> None:
     await callback.answer(
-        "Этот шаг уже прошёл — пришли ссылку ещё раз.",
+        "Этот шаг уже прошёл — пришли MP4 ещё раз.",
         show_alert=True,
     )
