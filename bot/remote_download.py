@@ -185,6 +185,12 @@ def _cookie_opts() -> dict:
     return {}
 
 
+# Prefer <=720p, then any progressive/merged stream. VPS often sees fewer formats.
+_DOWNLOAD_FORMAT = (
+    "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
+)
+
+
 def _base_opts(**extra) -> dict:
     opts = {
         "quiet": True,
@@ -193,6 +199,12 @@ def _base_opts(**extra) -> dict:
         "retries": 3,
         "fragment_retries": 3,
         "remote_components": ["ejs:github"],
+        # Datacenter IPs often get empty/web-only format lists without android/ios
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        },
     }
     opts.update(_cookie_opts())
     opts.update(extra)
@@ -202,16 +214,23 @@ def _base_opts(**extra) -> dict:
 def _friendly_download_error(exc: Exception, source: str) -> str:
     msg = str(exc)
     logger.warning("Download failed (%s): %s", source, msg)
-    if "requiring login" in msg.lower() or "cookies" in msg.lower():
+    lower = msg.lower()
+    if "requiring login" in lower or "cookies" in lower or "not a bot" in lower:
         return (
             "Не получилось скачать это видео.\n"
             "Попробуй другую ссылку или зайди позже."
+        )
+    if "format is not available" in lower or "requested format" in lower:
+        return (
+            "Не получилось скачать это видео в доступном качестве.\n"
+            "Попробуй другую ссылку."
         )
     return "Не получилось скачать видео. Проверь ссылку или попробуй другое."
 
 
 def _probe_info(url: str) -> dict:
-    opts = _base_opts(skip_download=True)
+    # Use the same flexible format + android/ios clients as download.
+    opts = _base_opts(skip_download=True, format=_DOWNLOAD_FORMAT)
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if not info:
@@ -299,7 +318,7 @@ def _download_sync(url: str) -> DownloadResult:
     try:
         outtmpl = str(staging_dir / "input.%(ext)s")
         opts = _base_opts(
-            format="bv*[height<=720]+ba/b[height<=720]/b",
+            format=_DOWNLOAD_FORMAT,
             merge_output_format="mp4",
             outtmpl=outtmpl,
         )
