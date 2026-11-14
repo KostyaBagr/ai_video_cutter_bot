@@ -185,13 +185,11 @@ def _cookie_opts() -> dict:
     return {}
 
 
-# Prefer <=720p, then any progressive/merged stream. VPS often sees fewer formats.
-_DOWNLOAD_FORMAT = (
-    "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
-)
+# <=720p when YouTube offers it, otherwise any combined or separate stream.
+_DOWNLOAD_FORMAT = "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
 
 
-def _base_opts(**extra) -> dict:
+def _base_opts(*, source: str | None = None, **extra) -> dict:
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -199,14 +197,11 @@ def _base_opts(**extra) -> dict:
         "retries": 3,
         "fragment_retries": 3,
         "remote_components": ["ejs:github"],
-        # Datacenter IPs often get empty/web-only format lists without android/ios
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "web"],
-            }
-        },
     }
-    opts.update(_cookie_opts())
+    # YouTube cookies from a browser export often yield only storyboards,
+    # and yt-dlp then fails with "Requested format is not available".
+    if source != "youtube":
+        opts.update(_cookie_opts())
     opts.update(extra)
     return opts
 
@@ -228,9 +223,9 @@ def _friendly_download_error(exc: Exception, source: str) -> str:
     return "Не получилось скачать видео. Проверь ссылку или попробуй другое."
 
 
-def _probe_info(url: str) -> dict:
-    # Use the same flexible format + android/ios clients as download.
-    opts = _base_opts(skip_download=True, format=_DOWNLOAD_FORMAT)
+def _probe_info(url: str, source: str) -> dict:
+    # Metadata only. Format selection happens later, on the actual download.
+    opts = _base_opts(source=source, skip_download=True)
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if not info:
@@ -294,7 +289,7 @@ def _download_sync(url: str) -> DownloadResult:
     if not source:
         raise RemoteDownloadError("Поддерживаются только YouTube и TikTok.")
 
-    info = _probe_info(url)
+    info = _probe_info(url, source)
     _validate_duration(info.get("duration"), stage="before")
     video_id = _resolve_video_id(url, source, info)
     cached = _cached_path(source, video_id)
@@ -318,6 +313,7 @@ def _download_sync(url: str) -> DownloadResult:
     try:
         outtmpl = str(staging_dir / "input.%(ext)s")
         opts = _base_opts(
+            source=source,
             format=_DOWNLOAD_FORMAT,
             merge_output_format="mp4",
             outtmpl=outtmpl,
